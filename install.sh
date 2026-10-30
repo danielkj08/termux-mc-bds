@@ -2,7 +2,7 @@
 set -e
 
 echo "=========================================================="
-echo "    🚀 마인크래프트 BDS 자동 복구 & 원클릭 설치기"
+echo "    🚀 마인크래프트 BDS 자동 복구 & 원클릭 설치기 v2.2"
 echo "=========================================================="
 echo "스마트폰을 초기화했거나 새로 설치할 때 이 스크립트 하나로"
 echo "우분투, Box64, 마인크래프트 BDS, 통합 관리자(mc)까지"
@@ -47,10 +47,10 @@ if [ ! -f bedrock_server ]; then
     unzip -q -o bedrock-server.zip
     rm -f bedrock-server.zip
     chmod +x bedrock_server
-    # 기본 설정 튜닝 (비정품 허용, 화이트리스트 끄기, 서버이름 변경)
-    sed -i "s/allow-list=true/allow-list=false/g" server.properties
-    sed -i "s/online-mode=true/online-mode=false/g" server.properties
-    sed -i "s/server-name=Dedicated Server/server-name=Termux BDS Server/g" server.properties
+    # 기본 설정 튜닝 (오프라인 허용, 화이트리스트 끄기, 서버이름 변경)
+    sed -i "s/^allow-list=.*/allow-list=false/g" server.properties
+    sed -i "s/^online-mode=.*/online-mode=false/g" server.properties
+    sed -i "s/^server-name=.*/server-name=Termux BDS Server/g" server.properties
 fi
 '
 
@@ -59,7 +59,7 @@ mkdir -p /data/data/com.termux/files/home/bds_backups
 
 # 6. 개별 관리 스크립트들 생성
 echo ""
-echo "[5/6] 서버 관리 스크립트 자동 생성 중..."
+echo "[5/6] 서버 관리 스크립트 자동 생성 및 다운로드 중..."
 
 # start.sh
 cat << 'EOF' > ~/start.sh
@@ -71,7 +71,12 @@ else
     echo "[*] 마인크래프트 BDS 서버를 백그라운드(tmux)에서 시작합니다..."
     tmux new-session -d -s mc "proot-distro login ubuntu -- bash -c 'cd /root/minecraft_bds && BOX64_DYNAREC=1 box64 ./bedrock_server'"
     sleep 3
+    MY_IP=$(ip -4 addr show wlan0 2>/dev/null | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | head -n 1)
+    [ -z "$MY_IP" ] && MY_IP="192.168.0.253"
     echo "[+] 서버가 시작되었습니다!"
+    echo "    - 접속 IP: ${MY_IP} (포트: 19132)"
+    echo "    - 콘솔 확인: ./console.sh"
+    echo "    - 서버 종료: ./stop.sh"
 fi
 EOF
 
@@ -95,7 +100,7 @@ cat << 'EOF' > ~/console.sh
 #!/data/data/com.termux/files/usr/bin/bash
 if tmux has-session -t mc 2>/dev/null; then
     echo "[*] 마인크래프트 서버 콘솔에 연결합니다."
-    echo "    [안내] 서버를 끄지 않고 나가려면: 볼륨다운+B 누른 뒤 d 키"
+    echo "    [안내] 서버를 끄지 않고 나가려면: 볼륨다운+B 누른 뒤 d 키 (또는 Ctrl+B 누른 뒤 d)"
     sleep 1
     tmux attach-session -t mc
 else
@@ -121,59 +126,6 @@ fi
 "
 EOF
 
-# restore.sh
-cat << 'EOF' > ~/restore.sh
-#!/data/data/com.termux/files/usr/bin/bash
-BACKUP_DIR="/data/data/com.termux/files/home/bds_backups"
-FILES=("$BACKUP_DIR"/*.tar.gz)
-if [ ! -e "${FILES[0]}" ]; then
-    echo "[!] 저장된 백업 파일이 없습니다."
-    exit 1
-fi
-echo "복구 가능한 백업 목록:"
-INDEX=1
-for file in "${FILES[@]}"; do
-    echo " [$INDEX] $(basename "$file")"
-    INDEX=$((INDEX + 1))
-done
-read -p "복구할 번호 선택 (취소 q): " choice
-if [ "$choice" != "q" ] && [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -lt "$INDEX" ]; then
-    SELECTED_FILE="${FILES[$((choice - 1))]}"
-    if tmux has-session -t mc 2>/dev/null; then
-        tmux send-keys -t mc "stop" C-m
-        while tmux has-session -t mc 2>/dev/null; do sleep 1; done
-    fi
-    cp "$SELECTED_FILE" /data/data/com.termux/files/usr/var/lib/proot-distro/containers/ubuntu/root/restore_target.tar.gz
-    proot-distro login ubuntu -- bash -c "
-    rm -rf /root/minecraft_bds/worlds
-    tar -xzf /root/restore_target.tar.gz -C /root/minecraft_bds/
-    rm -f /root/restore_target.tar.gz
-    "
-    echo "[+] 복구 완료! ./start.sh 로 켜세요."
-fi
-EOF
-
-# reset_world.sh
-cat << 'EOF' > ~/reset_world.sh
-#!/data/data/com.termux/files/usr/bin/bash
-read -p "정말 월드를 초기화하시겠습니까? (y/N): " confirm
-if [ "$confirm" = "y" ] || [ "$confirm" = "Y" ]; then
-    if tmux has-session -t mc 2>/dev/null; then
-        tmux send-keys -t mc "stop" C-m
-        while tmux has-session -t mc 2>/dev/null; do sleep 1; done
-    fi
-    TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
-    proot-distro login ubuntu -- bash -c "
-    if [ -d /root/minecraft_bds/worlds ]; then
-        tar -czf /root/world_backup_${TIMESTAMP}.tar.gz -C /root/minecraft_bds worlds
-        mv /root/world_backup_${TIMESTAMP}.tar.gz /data/data/com.termux/files/home/bds_backups/
-        rm -rf /root/minecraft_bds/worlds
-    fi
-    "
-    echo "[+] 월드가 초기화되었습니다! (백업 완료) ./start.sh 로 시작하세요."
-fi
-EOF
-
 # export_backup.sh
 cat << 'EOF' > ~/export_backup.sh
 #!/data/data/com.termux/files/usr/bin/bash
@@ -187,23 +139,30 @@ if [ "$m" = "1" ]; then
     cp "$BACKUP_DIR"/*.tar.gz ~/storage/downloads/Minecraft_Backups/ 2>/dev/null || cp "$BACKUP_DIR"/*.tar.gz /sdcard/Download/Minecraft_Backups/ 2>/dev/null
     echo "[+] 다운로드 폴더로 복사 완료!"
 elif [ "$m" = "2" ]; then
+    echo "[*] 백업 다운로드 웹 서버를 시작합니다 (포트 8080)..."
+    echo "    종료하시려면 Ctrl+C 를 누르세요."
     cd "$BACKUP_DIR" && python -m http.server 8080
 fi
 EOF
 
-# 7. menu.sh 및 bin/mc 설치
+# 7. 핵심 스크립트 다운로드 (GitHub)
 echo ""
-echo "[6/6] 통합 관리자(mc) 메뉴 등록 중..."
+echo "[6/6] 통합 관리자(mc), 월드 생성 마법사, Python 도우미 다운로드 중..."
 curl -sL https://raw.githubusercontent.com/danielkj08/termux-mc-bds/main/menu.sh -o ~/menu.sh
-sed -i 's/\r$//' ~/menu.sh
+curl -sL https://raw.githubusercontent.com/danielkj08/termux-mc-bds/main/mc_helper.py -o ~/mc_helper.py
+curl -sL https://raw.githubusercontent.com/danielkj08/termux-mc-bds/main/reset_world.sh -o ~/reset_world.sh
+curl -sL https://raw.githubusercontent.com/danielkj08/termux-mc-bds/main/restore.sh -o ~/restore.sh
 
+sed -i 's/\r$//' ~/menu.sh ~/mc_helper.py ~/reset_world.sh ~/restore.sh ~/*.sh
+
+# /data/data/com.termux/files/usr/bin/mc 등록
 cat << 'EOF' > /data/data/com.termux/files/usr/bin/mc
 #!/data/data/com.termux/files/usr/bin/bash
 exec /data/data/com.termux/files/home/menu.sh "$@"
 EOF
 sed -i 's/\r$//' /data/data/com.termux/files/usr/bin/mc
 
-chmod +x ~/*.sh /data/data/com.termux/files/usr/bin/mc 2>/dev/null || true
+chmod +x ~/*.sh ~/mc_helper.py /data/data/com.termux/files/usr/bin/mc 2>/dev/null || true
 grep -q "alias mc=" ~/.bashrc 2>/dev/null || echo 'alias mc="~/menu.sh"' >> ~/.bashrc
 
 # 절전 방지 활성화
