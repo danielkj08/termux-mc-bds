@@ -1,11 +1,11 @@
 #!/data/data/com.termux/files/usr/bin/bash
 
-# 마인크래프트 올인원 통합 관리자 v2.2
+# 마인크래프트 올인원 통합 관리자 v2.3
 BDS_ROOT="/data/data/com.termux/files/usr/var/lib/proot-distro/containers/ubuntu/rootfs/root/minecraft_bds"
 PROPS_FILE="$BDS_ROOT/server.properties"
 HELPER="/data/data/com.termux/files/home/mc_helper.py"
 
-# 플레이어 선택 공통 함수 (버프 및 기타 대상 선택용)
+# 플레이어 선택 공통 함수 (버프 및 게임모드 대상 선택용)
 select_target_player() {
     echo "[*] 플레이어 목록을 확인하는 중..."
     RAW_PLAYERS=$(python "$HELPER" players)
@@ -13,7 +13,7 @@ select_target_player() {
     NAMES=()
     echo ""
     echo "-----------------------------------------------------"
-    echo "효과를 적용할 대상을 선택하세요:"
+    echo "대상을 선택하세요:"
     echo " [0] 👥 모든 플레이어 (@a)"
     
     INDEX=1
@@ -111,7 +111,7 @@ while true; do
     fi
 
     echo "====================================================="
-    echo "       🎮 마인크래프트 BDS 초간편 통합 관리자 v2.2 🎮"
+    echo "       🎮 마인크래프트 BDS 초간편 통합 관리자 v2.3 🎮"
     echo "====================================================="
     echo "  서버 상태 : $SERVER_STATUS"
     echo "  내부 접속 : ${LAN_IP}:19132"
@@ -129,7 +129,7 @@ while true; do
     echo "-----------------------------------------------------"
     echo " [5]  👑 관리자(OP) 권한 관리 (접속자/최근 유저 목록 선택)"
     echo " [6]  ⚡ 물약 효과/버프 주기 (신속, 야간투시 등)"
-    echo " [7]  ⚙️  게임 설정 실시간 변경 (난이도, 모드, 하드코어 등)"
+    echo " [7]  ⚙️  게임 설정 실시간 변경 (난이도, 모드 전환, 하드코어)"
     echo " [8]  ⌨️  마크 콘솔 명령어 직접 한 줄 실행"
     echo "-----------------------------------------------------"
     echo " [9]  📊 스마트폰/서버 실시간 부하 상태 확인 (CPU, RAM)"
@@ -298,7 +298,7 @@ while true; do
         7)
             echo ""
             echo "====================================================="
-            echo " ⚙️  게임 설정 실시간 변경"
+            echo " ⚙️  게임 설정 및 서바이벌 ↔ 크리에이티브 전환"
             echo "====================================================="
             echo " [ 난이도 설정 ] (현재: $DISP_DIFF)"
             echo "  [1] 평화로움 (Peaceful)"
@@ -306,10 +306,10 @@ while true; do
             echo "  [3] 보통 (Normal)"
             echo "  [4] 어려움 (Hard)"
             echo ""
-            echo " [ 기본 게임모드 설정 ] (현재: $DISP_MODE)"
-            echo "  [5] 서바이벌 (Survival)"
-            echo "  [6] 크리에이티브 (Creative)"
-            echo "  [7] 모험 (Adventure)"
+            echo " [ 🔄 게임모드 즉시 전환 ] (현재: $DISP_MODE)"
+            echo "  [5] 🌲 서바이벌 모드로 전환 (Survival)"
+            echo "  [6] 🏰 크리에이티브 모드로 전환 (Creative)"
+            echo "  [7] 🗺️ 모험 모드로 전환 (Adventure)"
             echo ""
             echo " [ 💀 하드코어 모드 ] (현재: $DISP_HC)"
             echo "  [8] 하드코어 모드 켜기 (목숨 1개 + 난이도 어려움 고정 + 관전)"
@@ -345,17 +345,48 @@ while true; do
                     tmux send-keys -t mc "difficulty hard" Enter 2>/dev/null
                     echo "[+] 어려움 난이도로 변경되었습니다.";;
                 5)
-                    python "$HELPER" set_prop "gamemode" "survival"
-                    tmux send-keys -t mc "defaultgamemode survival" Enter 2>/dev/null
-                    echo "[+] 서바이벌 모드로 변경되었습니다.";;
+                    echo ""
+                    echo "서바이벌 모드를 적용할 대상을 선택하세요:"
+                    echo " [0] 👥 모든 플레이어 (@a) 및 기본 서버 모드"
+                    echo " [1] 👤 특정 플레이어만 선택"
+                    read -p "선택 (기본 0): " gm_target
+                    if [ "$gm_target" = "1" ] && select_target_player; then
+                        python "$HELPER" set_gamemode "survival" "$SELECTED_PLAYER"
+                        echo "[+] $SELECTED_PLAYER 님의 게임모드가 서바이벌(Survival)로 변경되었습니다!"
+                    else
+                        python "$HELPER" set_gamemode "survival" "@a"
+                        echo "[+] 모든 플레이어 및 기본 게임모드가 서바이벌(Survival)로 변경되었습니다!"
+                    fi
+                    ;;
                 6)
-                    python "$HELPER" set_prop "gamemode" "creative"
-                    tmux send-keys -t mc "defaultgamemode creative" Enter 2>/dev/null
-                    echo "[+] 크리에이티브 모드로 변경되었습니다.";;
+                    echo ""
+                    echo "크리에이티브 모드를 적용할 대상을 선택하세요:"
+                    echo " [0] 👥 모든 플레이어 (@a) 및 기본 서버 모드"
+                    echo " [1] 👤 특정 플레이어만 선택"
+                    read -p "선택 (기본 0): " gm_target
+                    if [ "$gm_target" = "1" ] && select_target_player; then
+                        python "$HELPER" set_gamemode "creative" "$SELECTED_PLAYER"
+                        echo "[+] $SELECTED_PLAYER 님의 게임모드가 크리에이티브(Creative)로 변경되었습니다!"
+                    else
+                        python "$HELPER" set_gamemode "creative" "@a"
+                        echo "[+] 모든 플레이어 및 기본 게임모드가 크리에이티브(Creative)로 변경되었습니다!"
+                        echo "    (하드코어 모드가 켜져 있었다면 자동으로 해제되었습니다)"
+                    fi
+                    ;;
                 7)
-                    python "$HELPER" set_prop "gamemode" "adventure"
-                    tmux send-keys -t mc "defaultgamemode adventure" Enter 2>/dev/null
-                    echo "[+] 모험 모드로 변경되었습니다.";;
+                    echo ""
+                    echo "모험 모드를 적용할 대상을 선택하세요:"
+                    echo " [0] 👥 모든 플레이어 (@a) 및 기본 서버 모드"
+                    echo " [1] 👤 특정 플레이어만 선택"
+                    read -p "선택 (기본 0): " gm_target
+                    if [ "$gm_target" = "1" ] && select_target_player; then
+                        python "$HELPER" set_gamemode "adventure" "$SELECTED_PLAYER"
+                        echo "[+] $SELECTED_PLAYER 님의 게임모드가 모험(Adventure)으로 변경되었습니다!"
+                    else
+                        python "$HELPER" set_gamemode "adventure" "@a"
+                        echo "[+] 모든 플레이어 및 기본 게임모드가 모험(Adventure)으로 변경되었습니다!"
+                    fi
+                    ;;
                 8)
                     echo "[*] 하드코어 설정을 적용하기 위해 서버를 재시작합니다..."
                     /data/data/com.termux/files/home/stop.sh

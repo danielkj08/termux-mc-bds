@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+"""
+Minecraft BDS Helper Script for Termux
+Handles server.properties, level.dat (Hardcore, Gamemode), permissions.json, and player tracking.
+"""
+
 import os
 import sys
 import subprocess
@@ -96,6 +101,49 @@ def set_hardcore(enable):
         write_prop("force-gamemode", "true")
         write_prop("gamemode", "survival")
     return updated
+
+def set_gamemode(mode, target="@a"):
+    mode_clean = mode.lower().strip()
+    mode_map = {"survival": 0, "creative": 1, "adventure": 2, "spectator": 6}
+    mode_num = mode_map.get(mode_clean, 0)
+    
+    # 1. Update server.properties
+    write_prop("gamemode", mode_clean)
+    write_prop("force-gamemode", "true")
+    
+    # 2. If changing to Creative or Adventure, disable Hardcore (Hardcore conflicts with Creative)
+    if mode_clean != "survival":
+        set_hardcore(False)
+        
+    # 3. Update level.dat for default world GameType and ForceGameType
+    world_dir = get_active_world_dir()
+    for fname in ["level.dat", "level.dat_old"]:
+        p = os.path.join(world_dir, fname)
+        if os.path.exists(p):
+            try:
+                with open(p, "rb") as f:
+                    data = bytearray(f.read())
+                # Update GameType (TAG_Int = 3, Name len = 8)
+                idx = data.find(b"\x08\x00GameType")
+                if idx != -1:
+                    val_pos = idx + 2 + len(b"GameType")
+                    data[val_pos:val_pos+4] = int(mode_num).to_bytes(4, "little")
+                # Update ForceGameType (TAG_Byte = 1, Name len = 13)
+                f_idx = data.find(b"\r\x00ForceGameType")
+                if f_idx != -1:
+                    f_val_pos = f_idx + 2 + len(b"ForceGameType")
+                    data[f_val_pos] = 1
+                with open(p, "wb") as f:
+                    f.write(data)
+            except Exception as e:
+                print(f"Error updating {fname} gamemode: {e}", file=sys.stderr)
+                
+    # 4. In-game command if server is running
+    if is_server_running():
+        cmd_target = f'"{target}"' if target != "@a" else "@a"
+        subprocess.run(["tmux", "send-keys", "-t", "mc", f"gamemode {mode_clean} {cmd_target}", "Enter"])
+        time.sleep(0.3)
+    return True
 
 def load_players_db():
     if os.path.exists(PLAYERS_DB):
@@ -249,6 +297,11 @@ if __name__ == "__main__":
         val = (sys.argv[2] == "1") if len(sys.argv) > 2 else True
         res = set_hardcore(val)
         print("SUCCESS" if res else "FAIL")
+    elif cmd == "set_gamemode":
+        mode = sys.argv[2] if len(sys.argv) > 2 else "survival"
+        target = sys.argv[3] if len(sys.argv) > 3 else "@a"
+        set_gamemode(mode, target)
+        print("OK")
     elif cmd == "set_prop":
         if len(sys.argv) >= 4:
             k = sys.argv[2]
