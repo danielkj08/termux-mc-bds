@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 Minecraft BDS Helper Script for Termux
-Handles server.properties, level.dat (Hardcore, Gamemode), permissions.json, and player tracking.
+Handles server.properties, level.dat, permissions.json, player tracking, and history logs.
 """
 
 import os
@@ -16,6 +16,7 @@ BDS_ROOT = "/data/data/com.termux/files/usr/var/lib/proot-distro/containers/ubun
 PROPS_FILE = os.path.join(BDS_ROOT, "server.properties")
 PERMS_FILE = os.path.join(BDS_ROOT, "permissions.json")
 PLAYERS_DB = os.path.expanduser("~/.mc_players.json")
+HISTORY_FILE = os.path.expanduser("~/.mc_player_history.json")
 
 def read_props():
     props = {}
@@ -107,15 +108,12 @@ def set_gamemode(mode, target="@a"):
     mode_map = {"survival": 0, "creative": 1, "adventure": 2, "spectator": 6}
     mode_num = mode_map.get(mode_clean, 0)
     
-    # 1. Update server.properties
     write_prop("gamemode", mode_clean)
     write_prop("force-gamemode", "true")
     
-    # 2. If changing to Creative or Adventure, disable Hardcore (Hardcore conflicts with Creative)
     if mode_clean != "survival":
         set_hardcore(False)
         
-    # 3. Update level.dat for default world GameType and ForceGameType
     world_dir = get_active_world_dir()
     for fname in ["level.dat", "level.dat_old"]:
         p = os.path.join(world_dir, fname)
@@ -123,12 +121,10 @@ def set_gamemode(mode, target="@a"):
             try:
                 with open(p, "rb") as f:
                     data = bytearray(f.read())
-                # Update GameType (TAG_Int = 3, Name len = 8)
                 idx = data.find(b"\x08\x00GameType")
                 if idx != -1:
                     val_pos = idx + 2 + len(b"GameType")
                     data[val_pos:val_pos+4] = int(mode_num).to_bytes(4, "little")
-                # Update ForceGameType (TAG_Byte = 1, Name len = 13)
                 f_idx = data.find(b"\r\x00ForceGameType")
                 if f_idx != -1:
                     f_val_pos = f_idx + 2 + len(b"ForceGameType")
@@ -138,7 +134,6 @@ def set_gamemode(mode, target="@a"):
             except Exception as e:
                 print(f"Error updating {fname} gamemode: {e}", file=sys.stderr)
                 
-    # 4. In-game command if server is running
     if is_server_running():
         cmd_target = f'"{target}"' if target != "@a" else "@a"
         subprocess.run(["tmux", "send-keys", "-t", "mc", f"gamemode {mode_clean} {cmd_target}", "Enter"])
@@ -197,22 +192,92 @@ def is_server_running():
     res = subprocess.run(["tmux", "has-session", "-t", "mc"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return res.returncode == 0
 
-def sync_players():
-    db = load_players_db()
-    if "ScareSleet6962" not in db:
-        db["ScareSleet6962"] = {"xuid": "2535452431165878", "last_seen": "2026-10-30 22:37"}
-
+def sync_history():
+    events = []
+    if os.path.exists(HISTORY_FILE):
+        try:
+            with open(HISTORY_FILE, "r", encoding="utf-8") as f:
+                events = json.load(f)
+        except Exception:
+            events = []
+            
+    existing_keys = set(f"{e.get('time')}|{e.get('action')}|{e.get('name')}" for e in events)
+    
     if is_server_running():
         try:
-            pane = subprocess.check_output(["tmux", "capture-pane", "-pt", "mc", "-S", "-1000"], text=True, errors="ignore")
-            for m in re.finditer(r"Player (?:connected|Spawned):\s+([a-zA-Z0-9_ ]+?)(?:,\s+xuid:\s+(\d+)|$)", pane):
-                name = m.group(1).strip()
-                xuid = m.group(2) if m.group(2) else ""
-                if name:
-                    if name not in db:
-                        db[name] = {"xuid": xuid, "last_seen": "Recently"}
-                    elif xuid and not db[name].get("xuid"):
-                        db[name]["xuid"] = xuid
+            pane = subprocess.check_output(["tmux", "capture-pane", "-pt", "mc", "-S", "-3000", "-J"], text=True, errors="ignore")
+            for m in re.finditer(r"\[([\d\- :]+):\d+ INFO\] Player (connected|disconnected):\s+([a-zA-Z0-9_ ]+?)(?:,\s+xuid:\s+(\d+)|$)", pane):
+                ts = m.group(1).strip()
+                action = "JOIN" if m.group(2) == "connected" else "LEAVE"
+                name = m.group(3).strip()
+                xuid = m.group(4) if m.group(4) else ""
+                key = f"{ts}|{action}|{name}"
+                if key not in existing_keys:
+                    events.append({"time": ts, "action": action, "name": name, "xuid": xuid})
+                    existing_keys.add(key)
+        except Exception:
+            pass
+            
+    try:
+        with open(HISTORY_FILE, "w", encoding="utf-8") as f:
+            json.dump(events, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+    return events
+
+def print_history():
+    events = sync_history()
+    ops = get_ops_xuids()
+    online_names = [p["name"] for p in get_player_status() if p["online"]]
+    
+    players = {}
+    for e in events:
+        name = e["name"]
+        if name not in players:
+            players[name] = {"xuid": e.get("xuid", ""), "joins": 0, "last_seen": e["time"], "last_action": e["action"]}
+        if e.get("xuid") and not players[name]["xuid"]:
+            players[name]["xuid"] = e["xuid"]
+        if e["action"] == "JOIN":
+            players[name]["joins"] += 1
+        players[name]["last_seen"] = e["time"]
+        players[name]["last_action"] = e["action"]
+        
+    print("=====================================================")
+    print("       👥 마인크래프트 서버 접속자 및 참여 기록")
+    print("=====================================================")
+    print(f"  총 누적 플레이어: {len(players)}명")
+    print("-----------------------------------------------------")
+    for idx, (name, info) in enumerate(players.items(), 1):
+        is_op = info["xuid"] in ops
+        is_online = name in online_names
+        status_str = "🟢 현재 접속 중" if is_online else f"⚪ 오프라인 ({info['last_seen']} 퇴장)"
+        op_str = "👑 [관리자 OP]" if is_op else "[일반 유저]"
+        print(f" [{idx}] 👤 {name} {op_str}")
+        print(f"     - 고유 XUID  : {info['xuid'] or '확인 불가'}")
+        print(f"     - 접속 횟수  : 총 {info['joins']}회 접속")
+        print(f"     - 현재 상태  : {status_str}")
+    print("-----------------------------------------------------")
+    print(" [ 📋 최근 접속/퇴장 타임라인 (최신순 10건) ]")
+    recent_events = sorted(events, key=lambda x: x["time"], reverse=True)[:10]
+    for e in recent_events:
+        act_icon = "🟢 입장 (Connect)" if e["action"] == "JOIN" else "🔴 퇴장 (Disconnect)"
+        print(f"  • {e['time']} | {e['name']:<15} | {act_icon}")
+    print("=====================================================")
+
+def sync_players():
+    sync_history()
+    db = load_players_db()
+    if os.path.exists(HISTORY_FILE):
+        try:
+            with open(HISTORY_FILE, "r", encoding="utf-8") as f:
+                events = json.load(f)
+                for e in events:
+                    n = e["name"]
+                    x = e.get("xuid", "")
+                    if n not in db:
+                        db[n] = {"xuid": x, "last_seen": e["time"]}
+                    elif x and not db[n].get("xuid"):
+                        db[n]["xuid"] = x
         except Exception:
             pass
 
@@ -293,6 +358,8 @@ if __name__ == "__main__":
             on_str = "ONLINE" if p["online"] else "OFFLINE"
             op_str = "OP" if p["is_op"] else "USER"
             print(f"{idx}|{p['name']}|{on_str}|{op_str}|{p['xuid']}")
+    elif cmd == "history":
+        print_history()
     elif cmd == "set_hardcore":
         val = (sys.argv[2] == "1") if len(sys.argv) > 2 else True
         res = set_hardcore(val)

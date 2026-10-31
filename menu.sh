@@ -1,6 +1,6 @@
 #!/data/data/com.termux/files/usr/bin/bash
 
-# 마인크래프트 올인원 통합 관리자 v2.3
+# 마인크래프트 올인원 통합 관리자 v2.4
 BDS_ROOT="/data/data/com.termux/files/usr/var/lib/proot-distro/containers/ubuntu/rootfs/root/minecraft_bds"
 PROPS_FILE="$BDS_ROOT/server.properties"
 HELPER="/data/data/com.termux/files/home/mc_helper.py"
@@ -111,7 +111,7 @@ while true; do
     fi
 
     echo "====================================================="
-    echo "       🎮 마인크래프트 BDS 초간편 통합 관리자 v2.3 🎮"
+    echo "       🎮 마인크래프트 BDS 초간편 통합 관리자 v2.4 🎮"
     echo "====================================================="
     echo "  서버 상태 : $SERVER_STATUS"
     echo "  내부 접속 : ${LAN_IP}:19132"
@@ -132,11 +132,12 @@ while true; do
     echo " [7]  ⚙️  게임 설정 실시간 변경 (난이도, 모드 전환, 하드코어)"
     echo " [8]  ⌨️  마크 콘솔 명령어 직접 한 줄 실행"
     echo "-----------------------------------------------------"
-    echo " [9]  📊 스마트폰/서버 실시간 부하 상태 확인 (CPU, RAM)"
-    echo " [10] 💾 월드 즉시 수동 백업하기"
-    echo " [11] 🔄 이전 백업 시점으로 월드 복구하기 (Restore)"
-    echo " [12] 📦 백업 파일 폰 다운로드 폴더로 내보내기 / 다운로드"
-    echo " [13] 🌍 월드 초기화 및 새 월드 만들기 (시드/하드코어 설정 마법사)"
+    echo " [9]  👥 서버 접속자 및 참여 기록 / 타임라인 보기"
+    echo " [10] 📊 스마트폰/서버 실시간 부하 상태 확인 (CPU, RAM)"
+    echo " [11] 💾 월드 즉시 수동 백업하기"
+    echo " [12] 🔄 이전 백업 시점으로 월드 복구하기 (Restore)"
+    echo " [13] 📦 백업 파일 폰 다운로드 폴더로 내보내기 / 다운로드"
+    echo " [14] 🌍 월드 초기화 및 새 월드 만들기 (시드/하드코어 설정 마법사)"
     echo "-----------------------------------------------------"
     echo " [0]  종료 (Exit)"
     echo "====================================================="
@@ -444,6 +445,12 @@ while true; do
             ;;
         9)
             echo ""
+            python "$HELPER" history
+            echo ""
+            read -p "엔터를 누르면 메뉴로 돌아갑니다..." dummy
+            ;;
+        10)
+            echo ""
             echo "================ 📊 서버 및 폰 부하 상태 ================"
             echo "1. 마인크래프트 프로세스 점유율:"
             ps aux | grep -E 'bedrock_server|box64' | grep -v grep | awk '{print "   - CPU 사용량: "$3"%, RAM 점유율: "$4"%, 실제 메모리: "$6/1024" MB"}'
@@ -458,22 +465,22 @@ while true; do
             echo "========================================================="
             read -p "엔터를 누르면 메뉴로 돌아갑니다..." dummy
             ;;
-        10)
+        11)
             echo ""
             /data/data/com.termux/files/home/backup.sh
             read -p "엔터를 누르면 메뉴로 돌아갑니다..." dummy
             ;;
-        11)
+        12)
             echo ""
             /data/data/com.termux/files/home/restore.sh
             read -p "엔터를 누르면 메뉴로 돌아갑니다..." dummy
             ;;
-        12)
+        13)
             echo ""
             /data/data/com.termux/files/home/export_backup.sh
             read -p "엔터를 누르면 메뉴로 돌아갑니다..." dummy
             ;;
-        13)
+        14)
             echo ""
             /data/data/com.termux/files/home/reset_world.sh
             read -p "엔터를 누르면 메뉴로 돌아갑니다..." dummy
